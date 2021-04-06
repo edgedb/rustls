@@ -364,19 +364,19 @@ fn bench_handshake(params: &BenchmarkParam, clientauth: ClientAuth, resume: Resu
 
         server_time += time(|| {
             transfer(&mut client, &mut server);
-            server.process_new_packets().unwrap()
+            server.process_new_packets().unwrap();
         });
         client_time += time(|| {
             transfer(&mut server, &mut client);
-            client.process_new_packets().unwrap()
+            client.process_new_packets().unwrap();
         });
         server_time += time(|| {
             transfer(&mut client, &mut server);
-            server.process_new_packets().unwrap()
+            server.process_new_packets().unwrap();
         });
         client_time += time(|| {
             transfer(&mut server, &mut client);
-            client.process_new_packets().unwrap()
+            client.process_new_packets().unwrap();
         });
     }
 
@@ -459,7 +459,9 @@ fn bench_bulk(params: &BenchmarkParam, plaintext_size: u64, mtu: Option<usize>) 
 
         time_recv += transfer(&mut server, &mut client);
 
-        time_recv += time(|| client.process_new_packets().unwrap());
+        time_recv += time(|| {
+            client.process_new_packets().unwrap();
+        });
         drain(&mut client, buf.len());
     }
 

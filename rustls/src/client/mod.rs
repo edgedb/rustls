@@ -11,7 +11,7 @@ use crate::msgs::enums::{ContentType, ProtocolVersion};
 use crate::msgs::handshake::CertificatePayload;
 use crate::msgs::handshake::ClientExtension;
 use crate::msgs::message::Message;
-use crate::session::{MiddleboxCCS, Session, SessionCommon};
+use crate::session::{IoState, MiddleboxCCS, Session, SessionCommon};
 use crate::sign;
 use crate::suites::{SupportedCipherSuite, ALL_CIPHERSUITES};
 use crate::verify;
@@ -564,7 +564,7 @@ impl ClientSessionImpl {
         Ok(())
     }
 
-    pub fn process_new_packets(&mut self) -> Result<(), TLSError> {
+    pub fn process_new_packets(&mut self) -> Result<IoState, TLSError> {
         if let Some(ref err) = self.error {
             return Err(err.clone());
         }
@@ -588,7 +588,7 @@ impl ClientSessionImpl {
             }
         }
 
-        Ok(())
+        Ok(self.common.current_io_state())
     }
 
     pub fn get_peer_certificates(&self) -> Option<Vec<key::Certificate>> {
@@ -713,7 +713,7 @@ impl Session for ClientSession {
         self.imp.common.write_tls(wr)
     }
 
-    fn process_new_packets(&mut self) -> Result<(), TLSError> {
+    fn process_new_packets(&mut self) -> Result<IoState, TLSError> {
         self.imp.process_new_packets()
     }
 
