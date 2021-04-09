@@ -165,9 +165,9 @@ fn versions() {
 }
 
 fn check_read(reader: &mut dyn io::Read, bytes: &[u8]) {
-    let mut buf = Vec::new();
-    assert_eq!(bytes.len(), reader.read_to_end(&mut buf).unwrap());
-    assert_eq!(bytes.to_vec(), buf);
+    let mut buf = vec![0u8; bytes.len() + 1];
+    assert_eq!(bytes.len(), reader.read(&mut buf).unwrap());
+    assert_eq!(bytes, &buf[..bytes.len()]);
 }
 
 #[test]
@@ -313,14 +313,8 @@ fn server_can_get_client_cert_after_resumption() {
 }
 
 fn check_read_and_close(reader: &mut dyn io::Read, expect: &[u8]) {
-    let mut buf = Vec::new();
-    buf.resize(expect.len(), 0u8);
-    assert_eq!(expect.len(), reader.read(&mut buf).unwrap());
-    assert_eq!(expect.to_vec(), buf);
-
-    let err = reader.read(&mut buf);
-    assert!(err.is_err());
-    assert_eq!(err.err().unwrap().kind(), io::ErrorKind::ConnectionAborted);
+    check_read(reader, expect);
+    assert!(matches!(reader.read(&mut [0u8; 5]), Ok(0)));
 }
 
 #[test]
@@ -1217,6 +1211,20 @@ impl<'a> io::Write for OtherSession<'a> {
 }
 
 #[test]
+fn server_read_returns_wouldblock_when_no_data() {
+    let (_, mut server) = make_pair(KeyType::RSA);
+    assert!(matches!(server.read(&mut [0u8; 1]),
+                     Err(err) if err.kind() == io::ErrorKind::WouldBlock));
+}
+
+#[test]
+fn client_read_returns_wouldblock_when_no_data() {
+    let (mut client, _) = make_pair(KeyType::RSA);
+    assert!(matches!(client.read(&mut [0u8; 1]),
+                     Err(err) if err.kind() == io::ErrorKind::WouldBlock));
+}
+
+#[test]
 fn new_server_returns_initial_io_state() {
     let (_, mut server) = make_pair(KeyType::RSA);
     let io_state = server.process_new_packets().unwrap();
@@ -1521,7 +1529,7 @@ fn stream_write_reports_underlying_io_error_before_plaintext_processed() {
     do_handshake(&mut client, &mut server);
 
     let mut pipe = FailsWrites {
-        errkind: io::ErrorKind::WouldBlock,
+        errkind: io::ErrorKind::ConnectionAborted,
         after: 0,
     };
     client.write(b"hello").unwrap();
@@ -1529,7 +1537,7 @@ fn stream_write_reports_underlying_io_error_before_plaintext_processed() {
     let rc = client_stream.write(b"world");
     assert!(rc.is_err());
     let err = rc.err().unwrap();
-    assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
+    assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
 }
 
 #[test]
@@ -1538,7 +1546,7 @@ fn stream_write_swallows_underlying_io_error_after_plaintext_processed() {
     do_handshake(&mut client, &mut server);
 
     let mut pipe = FailsWrites {
-        errkind: io::ErrorKind::WouldBlock,
+        errkind: io::ErrorKind::ConnectionAborted,
         after: 1,
     };
     client.write(b"hello").unwrap();
