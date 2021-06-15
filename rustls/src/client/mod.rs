@@ -443,13 +443,7 @@ impl ClientSessionImpl {
     }
 
     pub fn wants_read(&self) -> bool {
-        // We want to read more data all the time, except when we
-        // have unprocessed plaintext.  This provides back-pressure
-        // to the TCP buffers.
-        //
-        // This also covers the handshake case, because we don't have
-        // readable plaintext before handshake has completed.
-        !self.common.has_readable_plaintext()
+        self.common.wants_read()
     }
 
     pub fn wants_write(&self) -> bool {
