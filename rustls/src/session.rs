@@ -636,7 +636,7 @@ impl SessionCommon {
 
     /// Are we done? ie, have we processed all received messages,
     /// and received a close_notify to indicate that no new messages
-    /// will arrive?
+    /// will arrive or ran out of bytes on the incoming TLS stream?
     pub fn connection_at_eof(&self) -> bool {
         self.peer_eof && !self.message_deframer.has_pending()
     }
@@ -645,7 +645,11 @@ impl SessionCommon {
     /// buffering, so `rd` can supply TLS messages in arbitrary-
     /// sized chunks (like a socket or pipe might).
     pub fn read_tls(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
-        self.message_deframer.read(rd)
+        let res = self.message_deframer.read(rd);
+        if let Ok(0) = res {
+            self.peer_eof = true;
+        }
+        res
     }
 
     pub fn write_tls(&mut self, wr: &mut dyn Write) -> io::Result<usize> {
