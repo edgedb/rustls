@@ -377,6 +377,92 @@ fn client_close_notify() {
     }
 }
 
+#[test]
+fn server_closes_uncleanly() {
+    let kt = KeyType::RSA;
+    let server_config = Arc::new(make_server_config(kt));
+
+    for version in rustls::ALL_VERSIONS {
+        let client_config = make_client_config_with_versions(kt, &[version]);
+        let (mut client, mut server) =
+            make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
+        do_handshake(&mut client, &mut server);
+
+        // check that unclean EOF reporting does not overtake appdata
+        assert_eq!(
+            12,
+            server
+                .writer()
+                .write(b"from-server!")
+                .unwrap()
+        );
+        assert_eq!(
+            12,
+            client
+                .writer()
+                .write(b"from-client!")
+                .unwrap()
+        );
+
+        transfer(&mut server, &mut client);
+        transfer_eof(&mut client);
+        let io_state = client.process_new_packets().unwrap();
+        assert_eq!(io_state.peer_has_closed(), false);
+        check_read(&mut client.reader(), b"from-server!");
+
+        assert!(matches!(client.reader().read(&mut [0u8; 1]),
+                         Err(err) if err.kind() == io::ErrorKind::UnexpectedEof));
+
+        // may still transmit pending frames
+        transfer(&mut client, &mut server);
+        server.process_new_packets().unwrap();
+        check_read(&mut server.reader(), b"from-client!");
+    }
+}
+
+#[test]
+fn client_closes_uncleanly() {
+    let kt = KeyType::RSA;
+    let server_config = Arc::new(make_server_config(kt));
+
+    for version in rustls::ALL_VERSIONS {
+        let client_config = make_client_config_with_versions(kt, &[version]);
+        let (mut client, mut server) =
+            make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
+        do_handshake(&mut client, &mut server);
+
+        // check that unclean EOF reporting does not overtake appdata
+        assert_eq!(
+            12,
+            server
+                .writer()
+                .write(b"from-server!")
+                .unwrap()
+        );
+        assert_eq!(
+            12,
+            client
+                .writer()
+                .write(b"from-client!")
+                .unwrap()
+        );
+
+        transfer(&mut client, &mut server);
+        transfer_eof(&mut server);
+        let io_state = server.process_new_packets().unwrap();
+        assert_eq!(io_state.peer_has_closed(), false);
+        check_read(&mut server.reader(), b"from-client!");
+
+        assert!(matches!(server.reader().read(&mut [0u8; 1]),
+                         Err(err) if err.kind() == io::ErrorKind::UnexpectedEof));
+
+        // may still transmit pending frames
+        transfer(&mut server, &mut client);
+        client.process_new_packets().unwrap();
+        check_read(&mut client.reader(), b"from-server!");
+    }
+}
+
 #[derive(Default)]
 struct ServerCheckCertResolve {
     expected_sni: Option<String>,

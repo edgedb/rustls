@@ -469,7 +469,8 @@ pub struct SessionCommon {
     pub is_client: bool,
     pub record_layer: record_layer::RecordLayer,
     suite: Option<&'static SupportedCipherSuite>,
-    peer_eof: bool,
+    has_received_close_notify: bool,
+    has_seen_eof: bool,
     pub traffic: bool,
     pub early_traffic: bool,
     sent_fatal_alert: bool,
@@ -493,7 +494,8 @@ impl SessionCommon {
             is_client: client,
             record_layer: record_layer::RecordLayer::new(),
             suite: None,
-            peer_eof: false,
+            has_received_close_notify: false,
+            has_seen_eof: false,
             traffic: false,
             early_traffic: false,
             sent_fatal_alert: false,
@@ -514,7 +516,7 @@ impl SessionCommon {
         IoState {
             tls_bytes_to_write: self.sendable_tls.len(),
             plaintext_bytes_to_read: self.received_plaintext.len(),
-            peer_has_closed: self.peer_eof,
+            peer_has_closed: self.has_received_close_notify,
         }
     }
 
@@ -590,7 +592,7 @@ impl SessionCommon {
         // In the handshake case we don't have readable plaintext before the handshake has
         // completed, but also don't want to read if we still have sendable tls.
         self.received_plaintext.is_empty()
-            && !self.peer_eof
+            && !self.connection_was_cleanly_closed()
             && (self.traffic || self.sendable_tls.is_empty())
     }
 
@@ -609,7 +611,7 @@ impl SessionCommon {
             // If we get a CloseNotify, make a note to declare EOF to our
             // caller.
             if alert.description == AlertDescription::CloseNotify {
-                self.peer_eof = true;
+                self.has_received_close_notify = true;
                 return Ok(());
             }
 
@@ -693,9 +695,9 @@ impl SessionCommon {
 
     /// Are we done? ie, have we processed all received messages,
     /// and received a close_notify to indicate that no new messages
-    /// will arrive or ran out of bytes on the incoming TLS stream?
-    pub fn connection_at_eof(&self) -> bool {
-        self.peer_eof && !self.message_deframer.has_pending()
+    /// will arrive?
+    pub fn connection_was_cleanly_closed(&self) -> bool {
+        self.has_received_close_notify && !self.message_deframer.has_pending()
     }
 
     /// Read TLS content from `rd`.  This method does internal
@@ -704,7 +706,7 @@ impl SessionCommon {
     pub fn read_tls(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
         let res = self.message_deframer.read(rd);
         if let Ok(0) = res {
-            self.peer_eof = true;
+            self.has_seen_eof = true;
         }
         res
     }
@@ -833,11 +835,20 @@ impl SessionCommon {
         let len = self.received_plaintext.read(buf)?;
 
         if len == 0 && !buf.is_empty() {
-            // no bytes available:
-            // - if we received a close_notify, this is a genuine permanent EOF
-            // - otherwise say EWOULDBLOCK
-            if !self.connection_at_eof() {
-                return Err(io::ErrorKind::WouldBlock.into());
+            // No bytes available:
+            match (self.connection_was_cleanly_closed(), self.has_seen_eof) {
+                (true, _) => {
+                    // cleanly closed; don't care about TCP EOF: express this as Ok(0)
+                }
+                (false, true) => {
+                    // unclean closure
+                    return Err(io::ErrorKind::UnexpectedEof.into());
+                }
+                (false, false) => {
+                    // connection still going, but need more data: signal `WouldBlock` so that
+                    // the caller knows this
+                    return Err(io::ErrorKind::WouldBlock.into());
+                }
             }
         }
 

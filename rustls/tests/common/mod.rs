@@ -126,7 +126,18 @@ pub fn transfer(left: &mut dyn Session, right: &mut dyn Session) -> usize {
     total
 }
 
-pub fn transfer_altered<F>(left: &mut dyn Session, filter: F, right: &mut dyn Session) -> usize
+pub fn transfer_eof(conn: &mut dyn Session) {
+    let empty_buf = [0u8; 0];
+    let empty_cursor: &mut dyn io::Read = &mut &empty_buf[..];
+    let sz = conn.read_tls(empty_cursor).unwrap();
+    assert_eq!(sz, 0);
+}
+
+pub fn transfer_altered<F>(
+    left: &mut dyn Session,
+    filter: F,
+    right: &mut dyn Session,
+) -> usize
 where
     F: Fn(&mut Message),
 {
