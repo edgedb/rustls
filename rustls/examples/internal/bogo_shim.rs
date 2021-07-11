@@ -573,7 +573,6 @@ fn exec(opts: &Options, mut sess: ClientOrServer, count: usize) {
     ];
     let mut conn = net::TcpStream::connect(&addrs[..]).expect("cannot connect");
     let mut sent_shutdown = false;
-    let mut seen_eof = false;
     let mut sent_exporter = false;
 
     loop {
@@ -585,19 +584,6 @@ fn exec(opts: &Options, mut sess: ClientOrServer, count: usize) {
                 Err(ref err) if err.kind() == io::ErrorKind::ConnectionReset => 0,
                 err @ Err(_) => err.expect("read failed"),
             };
-
-            if len == 0 {
-                if opts.check_close_notify {
-                    if !seen_eof {
-                        seen_eof = true;
-                    } else {
-                        quit_err(":CLOSE_WITHOUT_CLOSE_NOTIFY:");
-                    }
-                } else {
-                    println!("EOF (plain)");
-                    return;
-                }
-            }
 
             if let Err(err) = sess.process_new_packets() {
                 flush(&mut sess, &mut conn); /* send any alerts before exiting */
@@ -654,14 +640,14 @@ fn exec(opts: &Options, mut sess: ClientOrServer, count: usize) {
         let mut buf = [0u8; 1024];
         let len = match sess.read(&mut buf[..opts.read_size]) {
             Ok(len) => len,
-            Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => 0,
+            Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
                 if opts.check_close_notify {
-                    println!("close notify ok");
+                    quit_err(":CLOSE_WITHOUT_CLOSE_NOTIFY:");
                 }
-                println!("EOF (tls)");
+                println!("EOF (tcp)");
                 return;
             }
-            Err(err) => panic!("unhandled read error {:?}", err),
         };
 
         if opts.shut_down_after_handshake && !sent_shutdown && !sess.is_handshaking() {
