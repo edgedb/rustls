@@ -645,6 +645,9 @@ impl SessionCommon {
     /// buffering, so `rd` can supply TLS messages in arbitrary-
     /// sized chunks (like a socket or pipe might).
     pub fn read_tls(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
+        if self.peer_eof {
+            return Ok(0);
+        }
         let res = self.message_deframer.read(rd);
         if let Ok(0) = res {
             self.peer_eof = true;
